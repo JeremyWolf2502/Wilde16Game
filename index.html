@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wilde 16 Multiplayer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #1b1b1b;
+            color: white;
+            text-align: center;
+        }
+        .container {
+            max-width: 800px;
+            margin: auto;
+            padding: 20px;
+        }
+        #game-log, #chat-log {
+            background-color: #2d2d2d;
+            padding: 10px;
+            height: 200px;
+            overflow-y: scroll;
+            margin-bottom: 20px;
+        }
+        #dice-container {
+            font-size: 3em;
+            margin: 20px 0;
+        }
+        .player-container {
+            display: flex;
+            justify-content: space-around;
+            margin: 20px;
+        }
+        .player {
+            background-color: #3a3a3a;
+            padding: 10px;
+            border-radius: 10px;
+        }
+        #total-counter {
+            font-size: 2em;
+            margin: 10px 0;
+            color: yellow;
+        }
+        input[type="text"], button {
+            padding: 10px;
+            margin: 5px;
+        }
+        #new-round-options {
+            display: none;
+            margin-top: 20px;
+        }
+        #game-stats {
+            margin-top: 20px;
+            font-size: 1em;
+            color: lightgray;
+               }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Wilde 16 Multiplayer</h1>
+
+        <!-- Gesamtanzeige aller Würfe -->
+        <div id="total-counter">Gesamtwert: 0</div>
+
+        <!-- Spieleranzeige -->
+        <div class="player-container" id="player-container"></div>
+
+        <!-- Aktuelles Spiel-Log -->
+        <div id="game-log"></div>
+
+        <!-- Würfelanzeige -->
+        <div id="dice-container">🎲</div>
+
+        <!-- Spieleranmeldung -->
+        <div id="player-info">
+            <label>Name: </label><input type="text" id="player-name" placeholder="Dein Name">
+            <button onclick="joinGame()">Spiel beitreten</button>
+        </div>
+
+        <!-- Spielaktionen -->
+        <div id="game-actions" style="display: none;">
+            <button onclick="determineLife()">Leben auswürfeln</button>
+            <button onclick="rollDice()" disabled>Würfeln</button>
+            <button onclick="sacrificeLife()" disabled>Leben opfern</button>
+            <div id="risk-to-lose"></div>
+        </div>
+
+        <!-- Ingame-Chat -->
+        <div id="chat-log"></div>
+        <input type="text" id="chat-message" placeholder="Nachricht eingeben...">
+        <button onclick="sendMessage()">Senden</button>
+
+        <!-- Neue Runde starten -->
+        <div id="new-round-options">
+            <button onclick="playNewRound()">Neue Runde spielen</button>
+            <button onclick="leaveGame()">Spiel verlassen</button>
+        </div>
+
+        <!-- Spielstatistiken -->
+        <div id="game-stats">
+            <h3>Statistiken:</h3>
+            <div id="player-stats"></div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let playerName = "";
+
+        // Spieler tritt dem Spiel bei
+        function joinGame() {
+            playerName = document.getElementById("player-name").value;
+            if (playerName) {
+                socket.emit('newPlayer', playerName);
+                document.getElementById("player-info").style.display = "none";
+                document.getElementById("game-actions").style.display = "block";
+            } else {
+                alert("Bitte einen Namen eingeben");
+            }
+        }
+
+        // Spieler würfelt sein Leben
+        function determineLife() {
+            socket.emit('determineLife');
+        }
+
+        // Spieler würfelt während des Spiels
+        function rollDice() {
+            socket.emit('rollDice');
+        }
+
+        // Spieler opfert ein Leben
+        function sacrificeLife() {
+            socket.emit('sacrificeLife');
+        }
+
+        // Neue Runde starten
+        function playNewRound() {
+            socket.emit('newRound');
+        }
+
+        // Spieler verlässt das Spiel
+        function leaveGame() {
+            window.location.reload();
+        }
+
+        // Spieleranzeige und Log aktualisieren
+socket.on('updatePlayers', (players) => {
+    let log = "";
+    let playerContainer = document.getElementById("player-container");
+    playerContainer.innerHTML = ""; // Container leeren
+
+    players.forEach((player, index) => {
+        log += `${player.name} - Leben: ${player.life} ${(player.isTurn ? " (am Zug)" : "")}<br>`;
+        let playerDiv = document.createElement("div");
+        playerDiv.classList.add("player");
+        playerDiv.innerHTML = `${player.name}<br>Leben: ${player.life}`;
+        if (player.isTurn) {
+            playerDiv.style.border = "2px solid yellow";
+        }
+        playerContainer.appendChild(playerDiv);
+    });
+
+    document.getElementById("game-log").innerHTML = log;
+
+    // Nur der aktuelle Spieler darf würfeln
+    const currentPlayer = players.find(player => player.isTurn);
+    if (currentPlayer && currentPlayer.name === playerName) {
+        document.querySelector('button[onclick="rollDice()"]').disabled = false;
+        document.querySelector('button[onclick="sacrificeLife()"]').disabled = false;
+    } else {
+        document.querySelector('button[onclick="rollDice()"]').disabled = true;
+        document.querySelector('button[onclick="sacrificeLife()"]').disabled = true;
+    }
+});
+
+
+        // Zeige Würfelwurf und Gesamtwert an
+        socket.on('rollResult', (data) => {
+            document.getElementById("game-log").innerHTML += `Der Spieler ${data.player} hat eine ${data.roll} gewürfelt. Gesamtwert: ${data.totalValue}<br>`;
+            document.getElementById("dice-container").textContent = "🎲 " + data.roll;
+            document.getElementById("total-counter").textContent = "Gesamtwert: " + data.totalValue;
+            document.getElementById("risk-to-lose").innerHTML = "Wahrscheinlichkeit zu verlieren: " + data.riskToLose;
+        });
+
+        // Zeige Leben opfern an
+        socket.on('lifeSacrificed', (data) => {
+            document.getElementById("game-log").innerHTML += `Der Spieler ${data.player} hat ein Leben geopfert. Verbleibende Leben: ${data.life}<br>`;
+        });
+
+        // Spieler scheidet aus
+        socket.on('playerEliminated', (playerName) => {
+            document.getElementById("game-log").innerHTML += `Der Spieler ${playerName} ist ausgeschieden.<br>`;
+        });
+
+        // Spielende
+        socket.on('gameOver', (winner) => {
+            document.getElementById("game-log").innerHTML += `Der Spieler ${winner} hat das Spiel gewonnen!<br>`;
+            document.getElementById("game-actions").style.display = "none";
+            document.getElementById("new-round-options").style.display = "block";
+        });
+
+        // Spiel wird zurückgesetzt
+        socket.on('resetGame', () => {
+            document.getElementById("player-info").style.display = "block";
+            document.getElementById("game-actions").style.display = "none";
+            document.getElementById("new-round-options").style.display = "none";
+        });
+
+        // Statistiken anzeigen
+        socket.on('updateGameStats', (stats) => {
+            let statsLog = "";
+            for (let player in stats) {
+                statsLog += `${player} - Siege: ${stats[player].wins}, Verluste: ${stats[player].losses}<br>`;
+            }
+            document.getElementById("player-stats").innerHTML = statsLog;
+        });
+
+        // Chatnachricht senden
+        function sendMessage() {
+            let message = document.getElementById("chat-message").value;
+            if (message.trim() !== "") {
+                socket.emit('sendMessage', playerName + ": " + message);
+                document.getElementById("chat-message").value = "";
+            }
+        }
+
+        // Chatnachricht empfangen
+        socket.on('receiveMessage', (message) => {
+            document.getElementById("chat-log").innerHTML += message + "<br>";
+        });
+    </script>
+</body>
+</html>
+
